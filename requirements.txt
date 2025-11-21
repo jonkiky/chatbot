@@ -1,0 +1,20 @@
+# Core dependencies for data ingestion pipeline
+llama-index>=0.9.0
+llama-index-core>=0.9.0
+llama-index-llms-ollama>=0.1.0
+llama-index-embeddings-ollama>=0.1.0
+llama-index-vector-stores-qdrant>=0.1.0
+
+# Vector database
+qdrant-client>=1.7.0
+
+# Ollama for local Llama 3.2 LLM and embeddings
+ollama>=0.1.0
+
+# Markdown parsing
+markdown>=3.5.0
+python-frontmatter>=1.0.0
+
+# Utilities
+pydantic>=2.0.0
+python-dotenv>=1.0.0
