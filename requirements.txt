@@ -2,14 +2,18 @@
 llama-index>=0.9.0
 llama-index-core>=0.9.0
 llama-index-llms-ollama>=0.1.0
-llama-index-embeddings-ollama>=0.1.0
+llama-index-embeddings-huggingface>=0.1.0
 llama-index-vector-stores-qdrant>=0.1.0
 
 # Vector database
 qdrant-client>=1.7.0
 
-# Ollama for local Llama 3.2 LLM and embeddings
+# Ollama for local Llama 3.2 LLM
 ollama>=0.1.0
+
+# HuggingFace for E5-Large-V2 embeddings
+sentence-transformers>=2.2.0
+torch>=2.0.0
 
 # Markdown parsing
 markdown>=3.5.0
@@ -18,3 +22,6 @@ python-frontmatter>=1.0.0
 # Utilities
 pydantic>=2.0.0
 python-dotenv>=1.0.0
+
+# Streamlit for chatbot UI
+streamlit>=1.28.0

@@ -63,6 +63,10 @@ logs/
 cache/
 storage/
 
+# Streamlit
+.streamlit/
+.streamlit/secrets.toml
+
 # Temporary files
 tmp/
 temp/

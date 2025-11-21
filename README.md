@@ -59,8 +59,10 @@ pip install -r requirements.txt
 # Install and start Ollama (if not already installed)
 # Visit https://ollama.ai for installation instructions
 
-# Pull Llama 3.2 model
+# Pull Llama 3.2 model for LLM classification
 ollama pull llama3.2
+
+# Note: E5-Large-V2 embeddings will be automatically downloaded from HuggingFace on first run
 
 # Set up environment variables
 cp .env.example .env
