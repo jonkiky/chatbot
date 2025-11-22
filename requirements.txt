@@ -6,7 +6,7 @@ llama-index-embeddings-huggingface>=0.1.0
 llama-index-vector-stores-qdrant>=0.1.0
 
 # Vector database
-qdrant-client==1.7.0
+qdrant-client>=1.7.0
 
 # Ollama for local Llama 3.2 LLM
 ollama>=0.1.0
