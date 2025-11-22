@@ -48,7 +48,6 @@ myenv/
 .ipynb_checkpoints
 
 # Vector database storage
-qdrant_data/
 *.db
 *.sqlite
 *.sqlite3

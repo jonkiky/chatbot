@@ -352,18 +352,16 @@ def initialize_chatbot():
         )
         
         # Initialize LLM with OpenAI
-        # Get OpenAI API key from environment or Streamlit secrets
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            try:
-                api_key = st.secrets.get("OPENAI_API_KEY")
-            except:
-                pass
+        # Get OpenAI API key from Streamlit secrets or environment
+        try:
+            api_key = st.secrets["OPENAI_API_KEY"]
+        except:
+            api_key = os.getenv("OPENAI_API_KEY")
         
         if not api_key:
             raise ValueError(
-                "OpenAI API key not found. Please set OPENAI_API_KEY environment variable "
-                "or add it to Streamlit secrets (.streamlit/secrets.toml)"
+                "OpenAI API key not found. Please add OPENAI_API_KEY to "
+                ".streamlit/secrets.toml or set it as an environment variable"
             )
         
         llm = OpenAI(
