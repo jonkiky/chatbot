@@ -21,7 +21,7 @@ from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, FilterOperator
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.ollama import Ollama
+from llama_index.llms.openai import OpenAI
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 import json
@@ -85,7 +85,7 @@ class ChatbotConfig:
     VECTOR_STORE_PATH = "./qdrant_data"
     COLLECTION_NAME = "cancer_data_sharing"
     EMBEDDING_MODEL = "intfloat/e5-large-v2"
-    LLM_MODEL = "llama3.2"
+    LLM_MODEL = "gpt-4o-mini"  # or "gpt-4o" or "gpt-3.5-turbo"
     TOP_K_RESULTS = 5
     TEMPERATURE = 0.7
     CONTEXT_WINDOW = 8192
@@ -351,12 +351,26 @@ def initialize_chatbot():
             trust_remote_code=True
         )
         
-        # Initialize LLM
-        llm = Ollama(
+        # Initialize LLM with OpenAI
+        # Get OpenAI API key from environment or Streamlit secrets
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            try:
+                api_key = st.secrets.get("OPENAI_API_KEY")
+            except:
+                pass
+        
+        if not api_key:
+            raise ValueError(
+                "OpenAI API key not found. Please set OPENAI_API_KEY environment variable "
+                "or add it to Streamlit secrets (.streamlit/secrets.toml)"
+            )
+        
+        llm = OpenAI(
             model=ChatbotConfig.LLM_MODEL,
             temperature=ChatbotConfig.TEMPERATURE,
-            request_timeout=120.0,
-            context_window=ChatbotConfig.CONTEXT_WINDOW
+            api_key=api_key,
+            max_tokens=4096
         )
         
         # Create index from existing vector store

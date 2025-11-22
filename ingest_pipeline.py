@@ -36,18 +36,13 @@ logger = logging.getLogger(__name__)
 
 # Chunk Categories as defined in the system design
 CHUNK_CATEGORIES = [
-    "policy",           # Rules and mandates
-    "scope",           # Who/what the policy covers
+    "guidance",        # Guidelines and recommendations
+    "policy",          # Rules and mandates
     "process",         # How to submit, share, or access data
-    "technical",       # Formats, metadata, standards
-    "privacy_security", # Human data protection, access control
-    "costs_funding",   # Budgeting and fees
-    "data_reuse",      # How to use/cite shared data
-    "compliance",      # Oversight, enforcement, modifications
     "resources",       # Training, guides, templates
-    "dataset_access",  # Finding and using datasets/repositories
     "glossary",        # Definitions and terminology
-    "faq"             # Frequently asked questions
+    "faq",             # Frequently asked questions
+    "news"             # News, announcements, and updates
 ]
 
 
@@ -191,18 +186,13 @@ Classify the following text chunk into ONE of these categories:
 {categories}
 
 Category definitions:
-- policy: Rules, mandates, requirements that must be followed
-- scope: Who or what a policy covers (types of data, researchers, institutions)
-- process: Step-by-step procedures for submitting, sharing, or accessing data
-- technical: Data formats, metadata standards, technical specifications
-- privacy_security: Human subject protection, consent, access controls, security measures
-- costs_funding: Budget requirements, fees, funding sources
-- data_reuse: How to properly use, cite, or acknowledge shared data
-- compliance: Oversight, enforcement, policy modifications, violations
+- guidance: Guidelines and best practices
+- policy: Rules and requirements
+- process: Step-by-step procedures
 - resources: Training materials, guides, templates, tools
-- dataset_access: How to find, request, or use specific datasets and repositories
-- glossary: Definitions, terminology, acronyms
+- glossary: Definitions and terminology
 - faq: Common questions and answers
+- news: News and announcements
 
 Text chunk:
 \"\"\"
@@ -224,7 +214,7 @@ Respond with ONLY the category name (one word), nothing else."""
         try:
             prompt = self.classification_prompt_template.format(
                 categories=", ".join(CHUNK_CATEGORIES),
-                chunk_text=chunk_text[:2000],  # Limit length
+                chunk_text=chunk_text[:2048],  # Limit length
                 section_title=section_title,
                 source_file=source_file
             )
@@ -234,8 +224,8 @@ Respond with ONLY the category name (one word), nothing else."""
             
             # Validate category
             if category not in CHUNK_CATEGORIES:
-                logger.warning(f"Invalid category '{category}', defaulting to 'policy'")
-                category = "policy"
+                logger.warning(f"Invalid category '{category}', defaulting to 'others'")
+                category = "others"
             
             return category
             
@@ -442,8 +432,8 @@ class IngestionPipeline:
         data_dir: str,
         vector_store_path: str = "./qdrant_data",
         collection_name: str = "cancer_data_sharing",
-        chunk_size: int = 1024,
-        chunk_overlap: int = 200
+        chunk_size: int = 2048,
+        chunk_overlap: int = 400
     ):
         """
         Initialize ingestion pipeline
