@@ -339,7 +339,33 @@ def initialize_chatbot():
         # Initialize Qdrant client
         client = QdrantClient(path=ChatbotConfig.VECTOR_STORE_PATH)
         
-        # Initialize vector store
+        # Check if collection exists
+        try:
+            collections = client.get_collections().collections
+            collection_exists = any(c.name == ChatbotConfig.COLLECTION_NAME for c in collections)
+            
+            if not collection_exists:
+                st.error(
+                    f"⚠️ Collection '{ChatbotConfig.COLLECTION_NAME}' not found. "
+                    "Please ensure the Qdrant data has been uploaded to Streamlit Cloud. "
+                    "The collection must be created by running the ingestion pipeline first."
+                )
+                st.info(
+                    "**To fix this:**\n"
+                    "1. Run `python ingest_pipeline.py` locally to create the collection\n"
+                    "2. Upload the entire `qdrant_data/` folder to your Streamlit Cloud repository\n"
+                    "3. Ensure the folder structure is preserved in deployment"
+                )
+                return None, None, None, None, None, None
+                
+            logger.info(f"Found existing collection: {ChatbotConfig.COLLECTION_NAME}")
+            
+        except Exception as e:
+            logger.error(f"Error checking collection: {e}")
+            st.error(f"Failed to connect to Qdrant: {str(e)}")
+            return None, None, None, None, None, None
+        
+        # Initialize vector store (connect to existing collection only)
         vector_store = QdrantVectorStore(
             client=client,
             collection_name=ChatbotConfig.COLLECTION_NAME
@@ -371,11 +397,12 @@ def initialize_chatbot():
             max_tokens=4096
         )
         
-        # Create index from existing vector store
+        # Create storage context
         storage_context = StorageContext.from_defaults(
             vector_store=vector_store
         )
         
+        # Load index from existing vector store
         index = VectorStoreIndex.from_vector_store(
             vector_store=vector_store,
             storage_context=storage_context,
