@@ -1,22 +1,22 @@
-# LlamaIndex core (stable branch compatible with Qdrant old schema)
-llama-index==0.10.15
-llama-index-core==0.10.15
-llama-index-vector-stores-qdrant==0.3.0
+# LlamaIndex stable versions compatible with Python 3.11 and Qdrant old API
+llama-index==0.11.14
+llama-index-core==0.11.14
+llama-index-vector-stores-qdrant==0.4.3
 
-# LLM integrations
-llama-index-llms-ollama==0.2.2
-llama-index-llms-openai==0.1.8
-llama-index-embeddings-huggingface==0.1.4
-
-# Qdrant - works with strict_mode_config
+# Qdrant version that still supports strict_mode_config
 qdrant-client==1.7.3
 
-# Embeddings + local models
+# LLM integrations
+llama-index-llms-ollama==0.3.0
+llama-index-llms-openai==0.2.0
+llama-index-embeddings-huggingface==0.1.6
+
+# Embeddings + backends
 sentence-transformers>=2.2.0
 torch>=2.0.0
 ollama>=0.1.0
 
-# Parsing & utilities
+# Utilities
 markdown>=3.5.0
 python-frontmatter>=1.0.0
 python-dotenv>=1.0.0
@@ -24,5 +24,5 @@ python-dotenv>=1.0.0
 # UI
 streamlit>=1.28.0
 
-# OpenAI API
+# OpenAI client
 openai>=1.0.0
