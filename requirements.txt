@@ -1,15 +1,14 @@
-# LlamaIndex stable versions compatible with Python 3.11 and Qdrant old API
-llama-index==0.11.14
-llama-index-core==0.11.14
-llama-index-vector-stores-qdrant==0.4.3
+# LlamaIndex stable versions compatible with Python 3.12 and Qdrant old API
+llama-index>=0.11.14
+llama-index-vector-stores-qdrant>=0.4.3
 
-# Qdrant version that still supports strict_mode_config
-qdrant-client==1.7.3
+# Qdrant client
+qdrant-client>=1.7.3
 
-# LLM integrations
-llama-index-llms-ollama==0.3.0
-llama-index-llms-openai==0.2.0
-llama-index-embeddings-huggingface==0.1.6
+# LLM integrations (versions will be auto-resolved by llama-index)
+llama-index-llms-ollama
+llama-index-llms-openai
+llama-index-embeddings-huggingface
 
 # Embeddings + backends
 sentence-transformers>=2.2.0

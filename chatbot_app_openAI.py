@@ -13,9 +13,13 @@ import os
 import logging
 from typing import List, Dict, Any
 from pathlib import Path
+from dotenv import load_dotenv
 
 import streamlit as st
 from llama_index.core import VectorStoreIndex, StorageContext
+
+# Load environment variables
+load_dotenv()
 from llama_index.core.chat_engine import ContextChatEngine
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.retrievers import VectorIndexRetriever
@@ -82,7 +86,15 @@ st.markdown("""
 class ChatbotConfig:
     """Configuration for the chatbot"""
     
+    # Qdrant configuration - check for cloud credentials
+    QDRANT_CLOUD_URL = os.getenv("QDRANT_HOST")
+    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
     VECTOR_STORE_PATH = "./qdrant_data"
+    
+    # Use cloud if credentials are available, otherwise use local
+    USE_CLOUD = bool(QDRANT_CLOUD_URL and QDRANT_API_KEY and 
+                     not QDRANT_CLOUD_URL.startswith("localhost"))
+    
     COLLECTION_NAME = "cancer_data_sharing"
     EMBEDDING_MODEL = "intfloat/e5-large-v2"
     LLM_MODEL = "gpt-4o-mini"  # or "gpt-4o" or "gpt-3.5-turbo"
@@ -180,50 +192,40 @@ class QueryRouter:
         
         filters = []
         
-        # Add primary category filter
-        if primary_category:
+        # Map categories to document types (use document_type instead of category)
+        # This matches the indexed field that was created during upload
+        category_mappings = {
+            "guidance": "Guidance",
+            "policy": "Guidance",
+            "process": "Process",
+            "resources": "Data",
+            "glossary": "About",
+            "faq": "Guidance",
+            "news": "News",
+            "others": "documents"
+        }
+        
+        # Collect all relevant document types
+        document_types = set()
+        
+        # Add document type for primary category
+        if primary_category and primary_category in category_mappings:
+            document_types.add(category_mappings[primary_category])
+        
+        # Add document types for secondary categories
+        for category in secondary_categories:
+            if category in category_mappings:
+                document_types.add(category_mappings[category])
+        
+        # Create filters using document_type (which has an index)
+        for doc_type in document_types:
             filters.append(
                 MetadataFilter(
-                    key="category",
-                    value=primary_category,
+                    key="document_type",
+                    value=doc_type,
                     operator=FilterOperator.EQ
                 )
             )
-        
-        # Add secondary category filters with OR logic if multiple categories
-        all_categories = [primary_category] + secondary_categories
-        
-        # Map categories to document types and other metadata
-        category_mappings = {
-            "guidance": {"document_type": "Guidance"},
-            "policy": {"document_type": "Guidance"},
-            "process": {"document_type": "Process"},
-            "resources": {"document_type": "Data"},
-            "glossary": {"document_type": "About"},
-            "faq": {"document_type": "Guidance"},
-            "news": {"document_type": "News"},
-            "others": {"document_type": "documents"}
-        }
-        
-        # Add additional filters based on category mappings
-        for category in all_categories:
-            if category in category_mappings:
-                mapping = category_mappings[category]
-                for key, value in mapping.items():
-                    if key == "has_repositories" and value:
-                        # Filter for documents that have repository information
-                        pass  # Repositories are in metadata, will be boosted by relevance
-                    elif key == "has_data_types" and value:
-                        # Filter for documents that have data type information
-                        pass  # Data types are in metadata, will be boosted by relevance
-                    else:
-                        filters.append(
-                            MetadataFilter(
-                                key=key,
-                                value=value,
-                                operator=FilterOperator.EQ
-                            )
-                        )
         
         if filters:
             return MetadataFilters(filters=filters, condition="or")
@@ -336,36 +338,19 @@ def initialize_chatbot():
     try:
         logger.info("Initializing chatbot components...")
         
-        # Initialize Qdrant client
-        client = QdrantClient(path=ChatbotConfig.VECTOR_STORE_PATH)
+        # Initialize Qdrant client - support both local and cloud
+        if ChatbotConfig.USE_CLOUD:
+            logger.info(f"Using Qdrant Cloud: {ChatbotConfig.QDRANT_CLOUD_URL}")
+            client = QdrantClient(
+                url=ChatbotConfig.QDRANT_CLOUD_URL,
+                api_key=ChatbotConfig.QDRANT_API_KEY,
+                https=True
+            )
+        else:
+            logger.info(f"Using local Qdrant: {ChatbotConfig.VECTOR_STORE_PATH}")
+            client = QdrantClient(path=ChatbotConfig.VECTOR_STORE_PATH)
         
-        # Check if collection exists
-        try:
-            collections = client.get_collections().collections
-            collection_exists = any(c.name == ChatbotConfig.COLLECTION_NAME for c in collections)
-            
-            if not collection_exists:
-                st.error(
-                    f"⚠️ Collection '{ChatbotConfig.COLLECTION_NAME}' not found. "
-                    "Please ensure the Qdrant data has been uploaded to Streamlit Cloud. "
-                    "The collection must be created by running the ingestion pipeline first."
-                )
-                st.info(
-                    "**To fix this:**\n"
-                    "1. Run `python ingest_pipeline.py` locally to create the collection\n"
-                    "2. Upload the entire `qdrant_data/` folder to your Streamlit Cloud repository\n"
-                    "3. Ensure the folder structure is preserved in deployment"
-                )
-                return None, None, None, None, None, None
-                
-            logger.info(f"Found existing collection: {ChatbotConfig.COLLECTION_NAME}")
-            
-        except Exception as e:
-            logger.error(f"Error checking collection: {e}")
-            st.error(f"Failed to connect to Qdrant: {str(e)}")
-            return None, None, None, None, None, None
-        
-        # Initialize vector store (connect to existing collection only)
+        # Initialize vector store
         vector_store = QdrantVectorStore(
             client=client,
             collection_name=ChatbotConfig.COLLECTION_NAME
@@ -397,12 +382,11 @@ def initialize_chatbot():
             max_tokens=4096
         )
         
-        # Create storage context
+        # Create index from existing vector store
         storage_context = StorageContext.from_defaults(
             vector_store=vector_store
         )
         
-        # Load index from existing vector store
         index = VectorStoreIndex.from_vector_store(
             vector_store=vector_store,
             storage_context=storage_context,

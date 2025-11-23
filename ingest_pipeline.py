@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 import logging
+from dotenv import load_dotenv
 
 from llama_index.core import Document, VectorStoreIndex, StorageContext
 from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
@@ -25,6 +26,10 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.ollama import Ollama
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
+from qdrant_client.models import PayloadSchemaType
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -433,20 +438,23 @@ class IngestionPipeline:
         vector_store_path: str = "./qdrant_data",
         collection_name: str = "cancer_data_sharing",
         chunk_size: int = 2048,
-        chunk_overlap: int = 400
+        chunk_overlap: int = 400,
+        use_cloud: bool = False
     ):
         """
         Initialize ingestion pipeline
         
         Args:
             data_dir: Path to Markdown corpus
-            vector_store_path: Path for Qdrant storage
+            vector_store_path: Path for Qdrant storage (local mode)
             collection_name: Name of vector collection
             chunk_size: Target chunk size in tokens
             chunk_overlap: Overlap between chunks
+            use_cloud: If True, use Qdrant Cloud instead of local storage
         """
         self.data_dir = data_dir
         self.collection_name = collection_name
+        self.use_cloud = use_cloud
         
         # Initialize components
         self.parser = MarkdownCorpusParser(data_dir)
@@ -461,8 +469,26 @@ class IngestionPipeline:
             chunk_overlap=chunk_overlap
         )
         
-        # Vector store setup
-        self.client = QdrantClient(path=vector_store_path)
+        # Vector store setup - support both local and cloud
+        if use_cloud:
+            cloud_url = os.getenv("QDRANT_HOST")
+            api_key = os.getenv("QDRANT_API_KEY")
+            
+            if not cloud_url or not api_key:
+                raise ValueError(
+                    "Cloud mode requires QDRANT_HOST and QDRANT_API_KEY in .env file"
+                )
+            
+            logger.info(f"Using Qdrant Cloud: {cloud_url}")
+            self.client = QdrantClient(
+                url=cloud_url,
+                api_key=api_key,
+                https=True
+            )
+        else:
+            logger.info(f"Using local Qdrant: {vector_store_path}")
+            self.client = QdrantClient(path=vector_store_path)
+        
         self.vector_store = QdrantVectorStore(
             client=self.client,
             collection_name=collection_name
@@ -582,10 +608,46 @@ class IngestionPipeline:
         
         logger.info("Ingestion pipeline completed successfully")
         
+        # Create payload indexes for filterable fields
+        self._create_payload_indexes()
+        
         # Log statistics
         self._log_statistics(all_nodes)
         
         return index
+    
+    def _create_payload_indexes(self):
+        """Create payload indexes for filterable fields after data is ingested"""
+        try:
+            logger.info("Creating payload indexes for filterable fields...")
+            
+            # Create index for category field
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="category",
+                    field_schema=PayloadSchemaType.KEYWORD
+                )
+                logger.info("✓ Created index for 'category'")
+            except Exception as e:
+                logger.warning(f"Index for 'category' may already exist or failed: {e}")
+            
+            # Create index for document_type field
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="document_type",
+                    field_schema=PayloadSchemaType.KEYWORD
+                )
+                logger.info("✓ Created index for 'document_type'")
+            except Exception as e:
+                logger.warning(f"Index for 'document_type' may already exist or failed: {e}")
+            
+            logger.info("Payload indexes creation completed")
+            
+        except Exception as e:
+            logger.error(f"Error creating payload indexes: {e}")
+            logger.warning("Continuing without indexes - filtering may not work")
     
     def _log_statistics(self, nodes: List[TextNode]):
         """Log statistics about indexed content"""
@@ -632,6 +694,11 @@ def main():
         default=1024,
         help="Target chunk size in tokens"
     )
+    parser.add_argument(
+        "--use-cloud",
+        action="store_true",
+        help="Use Qdrant Cloud instead of local storage (requires QDRANT_HOST and QDRANT_API_KEY in .env)"
+    )
     
     args = parser.parse_args()
     
@@ -640,7 +707,8 @@ def main():
         data_dir=args.data_dir,
         vector_store_path=args.vector_store_path,
         collection_name=args.collection_name,
-        chunk_size=args.chunk_size
+        chunk_size=args.chunk_size,
+        use_cloud=args.use_cloud
     )
     
     # Run pipeline
