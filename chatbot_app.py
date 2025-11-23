@@ -682,10 +682,6 @@ Answer:"""
                         "role": "assistant",
                         "content": "I apologize, but I encountered an error processing your question. Please try again."
                     })
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": "I apologize, but I encountered an error processing your question. Please try again."
-                    })
 
 
 if __name__ == "__main__":
