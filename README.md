@@ -1,243 +1,367 @@
-# Data Ingestion Pipeline
+# Cancer Data Sharing AI Chatbot
 
-This script implements the **High-Level Data & Indexing Design** from the AI Chatbot system architecture.
+An intelligent AI assistant for NCI data sharing policies and guidelines, built with LlamaIndex, Qdrant, and Streamlit.
 
 ## Overview
 
-The ingestion pipeline processes a unified Markdown corpus and creates a searchable vector database with rich metadata for intelligent retrieval.
+This application helps cancer researchers, data managers, and institutional officials understand:
+- NCI/NIH data sharing policies and requirements
+- Data submission and access processes
+- Genomic data sharing guidelines
+- Available datasets and repositories
+- Data management and sharing plan (DMSP) requirements
 
 ### Key Features
 
-- **Markdown Corpus Processing**: Parses all `.md` files from the `data/` directory
-- **LLM-Assisted Classification**: Automatically categorizes chunks into 12 content types
-- **Metadata Enrichment**: Infers funding sources, subject types, repositories, and policy requirements
-- **Vector Indexing**: Creates searchable embeddings with metadata filtering support
-- **Portkey Integration**: Optional routing through Portkey.ai gateway
+- **Intelligent Query Classification**: Automatically categorizes questions to retrieve the most relevant information
+- **Context-Aware Routing**: Routes queries to appropriate document types based on classification
+- **Metadata-Based Filtering**: Filters content by document type, category, and other metadata
+- **Response Quality Evaluation**: Assesses responses on relevance, accuracy, completeness, clarity, and actionability
+- **Streamlit UI**: Clean, interactive web interface with chat history and source citations
+- **Dual LLM Support**: Works with both Ollama (Llama 3.2) and OpenAI (GPT-4o-mini, GPT-4o)
+- **Flexible Deployment**: Supports local Qdrant and Qdrant Cloud
 
 ## Architecture
+
+### System Components
+
+```
+Streamlit UI → LlamaIndex (Query Router + RAG) → Qdrant Vector Store
+                    ↓
+              Ollama/OpenAI LLM
+                    ↓
+         HuggingFace Embeddings (E5-Large-V2)
+```
+
+### Data Pipeline
 
 ```
 Markdown Files → Parse & Chunk → LLM Classify → Enrich Metadata → Create Nodes → Vector Store
 ```
 
-### Chunk Categories
+### Query Categories
 
-The pipeline classifies content into these categories:
+Queries are classified into these categories for intelligent routing:
 
-1. **policy** - Rules and mandates that must be followed
-2. **scope** - Who/what the policy covers
-3. **process** - How to submit, share, or access data
-4. **technical** - Data formats, metadata standards
-5. **privacy_security** - Human subject protection, access controls
-6. **costs_funding** - Budget requirements and fees
-7. **data_reuse** - How to use/cite shared data
-8. **compliance** - Oversight and enforcement
-9. **resources** - Training materials and guides
-10. **dataset_access** - Finding and using datasets
-11. **glossary** - Definitions and terminology
-12. **faq** - Frequently asked questions
+1. **guidance** - Guidelines and best practices
+2. **policy** - Rules and requirements
+3. **process** - Step-by-step procedures
+4. **resources** - Training materials, guides, templates, tools, datasets
+5. **glossary** - Definitions and terminology
+6. **faq** - Common questions and answers
+7. **news** - News, announcements, and updates
 
-### Metadata Structure
+### Document Metadata
 
-Each chunk is enriched with:
+Each document chunk includes rich metadata for filtering:
 
-- **category**: Content type classification
+- **document_type**: About, Data, Guidance, Process, News
+- **category**: Content classification (guidance, policy, process, etc.)
 - **source_file**: Origin file path
 - **section_title**: Markdown section context
-- **funding_filters**: [NIH, NCI, DOD, NSF]
-- **subject_filters**: [human, animal, cell_line]
-- **repository_tags**: [dbGaP, SRA, GEO, PDC, GDC, CDS]
-- **policy_requirements**: [DMS Plan, Consent, Access Control, etc.]
+- **agencies**: NIH, NCI, FDA, CDC, NSF, DOD, etc.
+- **repositories**: dbGaP, SRA, GEO, PDC, GDC, CDS, IDC
+- **data_types**: genomic, clinical, imaging, proteomic, etc.
+- **subject_types**: human, animal, cell_line, tissue
+- **policy_references**: NIH_DMS_Policy, GDSP, etc.
+- **requirements**: DMS Plan, Consent, IRB, Access Control
 - **keywords**: Extracted significant terms
 
-## Installation
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Ollama (for local LLM) OR OpenAI API key (for cloud LLM)
+
+### Installation
 
 ```bash
+# Clone the repository
+git clone <repository-url>
+cd data-pipeline
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
 # Install dependencies
 pip install -r requirements.txt
 
-# Install and start Ollama (if not already installed)
-# Visit https://ollama.ai for installation instructions
-
-# Pull Llama 3.2 model for LLM classification
-ollama pull llama3.2
-
-# Note: E5-Large-V2 embeddings will be automatically downloaded from HuggingFace on first run
-
 # Set up environment variables
 cp .env.example .env
-# Edit .env if needed (default Ollama settings should work)
+# Edit .env with your credentials
 ```
 
-## Usage
-
-### Basic Usage
+### Option 1: Using Ollama (Local)
 
 ```bash
-# Run with default settings
-python ingest_pipeline.py
+# Install Ollama from https://ollama.ai
 
-# Specify custom data directory
+# Pull Llama 3.2 model
+ollama pull llama3.2
+
+# Run the chatbot
+streamlit run chatbot_app.py
+```
+
+### Option 2: Using OpenAI (Cloud)
+
+```bash
+# Add your OpenAI API key to .streamlit/secrets.toml
+echo 'OPENAI_API_KEY = "sk-..."' > .streamlit/secrets.toml
+
+# Run the chatbot
+streamlit run chatbot_app_openAI.py
+```
+
+## Data Ingestion
+
+### Initial Setup
+
+Before running the chatbot, ingest your Markdown documents:
+
+```bash
+# Basic ingestion (local Qdrant)
 python ingest_pipeline.py --data-dir ./data
 
-# Use custom collection name
-python ingest_pipeline.py --collection-name my_collection
+# Using Qdrant Cloud
+python ingest_pipeline.py --data-dir ./data --use-cloud
 ```
 
-### With Portkey Gateway
-
-```bash
-# Route LLM calls through Portkey.ai
-python ingest_pipeline.py \
-  --use-portkey \
-  --portkey-api-key YOUR_PORTKEY_KEY
-```
-
-### Advanced Options
+### Ingestion Options
 
 ```bash
 python ingest_pipeline.py \
   --data-dir ./data \
   --vector-store-path ./qdrant_data \
   --collection-name cancer_data_sharing \
-  --chunk-size 1024 \
-  --use-portkey \
-  --portkey-api-key YOUR_KEY
+  --chunk-size 1024
 ```
 
-## Command-Line Arguments
+### Upload to Qdrant Cloud
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--data-dir` | `./data` | Path to Markdown corpus |
-| `--vector-store-path` | `./qdrant_data` | Path for Qdrant storage |
-| `--collection-name` | `cancer_data_sharing` | Vector collection name |
-| `--chunk-size` | `1024` | Target chunk size (tokens) |
-| `--use-portkey` | `False` | Route through Portkey.ai |
-| `--portkey-api-key` | - | Portkey API key |
+If you've ingested locally and want to migrate to cloud:
 
-## Environment Variables
-
-Create a `.env` file with:
-
-```env
-# OpenAI API Key (required)
-OPENAI_API_KEY=sk-...
-
-# Portkey Configuration (optional)
-PORTKEY_API_KEY=pk-...
-PORTKEY_BASE_URL=https://api.portkey.ai/v1
-
-# Qdrant Configuration (optional)
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
+```bash
+python upload_to_qdrant_cloud.py \
+  --local-path ./qdrant_data \
+  --collection-name cancer_data_sharing
 ```
 
-## Code Structure
+## Configuration
 
-### Main Components
+### Environment Variables
 
-#### `MarkdownCorpusParser`
-- Discovers all Markdown files
-- Extracts frontmatter metadata
-- Parses document structure and sections
+Create `.streamlit/secrets.toml` for sensitive data:
 
-#### `ChunkClassifier`
-- Uses LLM to classify content type
-- Supports batch processing
-- Configurable with Portkey routing
+```toml
+# OpenAI API Key (required for chatbot_app_openAI.py)
+OPENAI_API_KEY = "sk-..."
 
-#### `MetadataEnricher`
-- Keyword-based metadata inference
-- Extracts funding sources, subjects, repositories
-- Identifies policy requirements
+# Qdrant Cloud Configuration (optional)
+QDRANT_HOST = "https://your-cluster.cloud.qdrant.io:6333"
+QDRANT_API_KEY = "your-api-key"
 
-#### `IngestionPipeline`
-- Orchestrates the complete workflow
-- Creates LlamaIndex nodes with metadata
-- Builds vector index with Qdrant
+# Ollama Configuration (for chatbot_app.py)
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "llama3.2"
 
-## Example Integration
+# Embedding Model
+EMBEDDING_MODEL = "intfloat/e5-large-v2"
 
-```python
-from ingest_pipeline import IngestionPipeline
-
-# Create pipeline
-pipeline = IngestionPipeline(
-    data_dir="./data",
-    collection_name="cancer_data_sharing",
-    chunk_size=1024,
-    use_portkey=True,
-    portkey_api_key="pk-..."
-)
-
-# Run ingestion
-index = pipeline.run_pipeline()
-
-# Index is now ready for querying
+# Data Configuration
+DATA_DIR = "./data"
+VECTOR_STORE_PATH = "./qdrant_data"
+COLLECTION_NAME = "cancer_data_sharing"
 ```
 
-## Querying with Metadata Filters
+### Application Settings
 
-After ingestion, query with metadata filters:
+Adjustable through the Streamlit sidebar:
 
-```python
-from llama_index.core import VectorStoreIndex
+- **Response Creativity** (Temperature): 0.0 - 1.0
+- **Number of Sources**: 1 - 10 retrieved documents
+- **Show Query Classification**: Display query routing information
+- **Show Response Evaluation**: Display quality metrics
 
-# Load existing index
-index = VectorStoreIndex.from_vector_store(vector_store)
-
-# Query with filters
-query_engine = index.as_query_engine(
-    filters={
-        "category": "policy",
-        "funding_filters": ["NIH", "NCI"],
-        "subject_filters": ["human"]
-    }
-)
-
-response = query_engine.query(
-    "What are the requirements for sharing human genomic data?"
-)
-```
-
-## Output
-
-The pipeline logs:
-
-- Number of files processed
-- Total chunks created
-- Classification statistics by category
-- Metadata enrichment counts
-- Vector indexing progress
-
-Example output:
+## Project Structure
 
 ```
-INFO - Found 47 Markdown files
-INFO - Processing: data/Guidance/genomic-data-sharing.md
-INFO - Created 23 chunks from genomic-data-sharing.md
-INFO - Total nodes created: 1,247
-INFO - Ingestion pipeline completed successfully
-INFO - === Indexing Statistics ===
-INFO - Total nodes: 1247
-INFO - Nodes by category:
-INFO -   policy: 342
-INFO -   process: 298
-INFO -   faq: 187
-INFO -   technical: 156
-INFO -   resources: 124
-INFO -   scope: 89
-INFO -   privacy_security: 51
+data-pipeline/
+├── chatbot_app.py              # Main chatbot (Ollama/Llama 3.2)
+├── chatbot_app_openAI.py       # OpenAI variant (GPT-4o-mini)
+├── ingest_pipeline.py          # Data ingestion and indexing
+├── upload_to_qdrant_cloud.py   # Upload local data to cloud
+├── requirements.txt            # Python dependencies
+├── .streamlit/
+│   └── secrets.toml           # API keys and credentials
+├── data/                      # Markdown corpus
+│   ├── About/
+│   ├── Data/
+│   ├── Guidance/
+│   ├── News/
+│   ├── Process/
+│   └── documents/
+└── qdrant_data/              # Local vector database
 ```
 
-## Next Steps
+### Key Components
 
-After ingestion, the vector database is ready for:
+#### Ingestion Pipeline (`ingest_pipeline.py`)
+- **MarkdownCorpusParser**: Discovers and parses Markdown files
+- **ChunkClassifier**: LLM-based content classification
+- **MetadataEnricher**: Extracts agencies, repositories, data types, etc.
+- **IngestionPipeline**: Orchestrates the complete indexing workflow
 
-1. **Query Routing**: Create specialized retrievers per category
-2. **ChatEngine Integration**: Build conversational RAG
-3. **Metadata Filtering**: Apply context-aware retrieval
-4. **API Development**: Expose via FastAPI backend
+#### Chatbot Application (`chatbot_app.py`, `chatbot_app_openAI.py`)
+- **QueryClassifier**: Classifies user queries for intelligent routing
+- **QueryRouter**: Routes queries to appropriate document types
+- **ResponseEvaluator**: Evaluates response quality on multiple dimensions
+- **Streamlit UI**: Interactive chat interface with source citations
 
-See the system design document for the complete RAG architecture.
+## Features
+
+### 1. Intelligent Query Classification
+
+The chatbot automatically classifies queries using both keyword matching and LLM analysis:
+
+- **guidance**: "What are best practices for..."
+- **policy**: "What rules apply to..."
+- **process**: "How do I submit..."
+- **resources**: "What tools are available..."
+- **glossary**: "What does DMSP mean?"
+- **faq**: "Can I share data without..."
+- **news**: "What's new in..."
+
+### 2. Context-Aware Routing
+
+Queries are routed to relevant document types based on classification:
+
+- **Guidance queries** → Guidance documents
+- **Process queries** → Process documents
+- **Resource queries** → Data/Resources
+- **Definition queries** → About/Glossary
+
+### 3. Metadata-Based Filtering
+
+Retrieved content is filtered by:
+- Document type (About, Data, Guidance, Process, News)
+- Categories (guidance, policy, process, etc.)
+- Agencies, repositories, data types
+- Policy requirements and compliance levels
+
+### 4. Response Quality Evaluation
+
+Each response is evaluated on:
+- **Relevance**: How well it addresses the query
+- **Accuracy**: Factual correctness based on context
+- **Completeness**: Thoroughness of the answer
+- **Clarity**: Ease of understanding
+- **Actionability**: Provides actionable information
+
+### 5. Source Citations
+
+Every response includes:
+- Source file paths
+- Section titles and document types
+- Relevant metadata (repositories, data types, etc.)
+- Text snippets from source documents
+
+## Usage Examples
+
+### Example Questions
+
+Try asking:
+
+1. **Policy Questions**
+   - "What is the NIH Data Management and Sharing Policy?"
+   - "What are the requirements for genomic data sharing?"
+
+2. **Process Questions**
+   - "How do I submit data to dbGaP?"
+   - "What are the steps to access cancer datasets?"
+
+3. **Resource Questions**
+   - "What repositories are available for cancer data?"
+   - "What tools can help with data sharing?"
+
+4. **Definition Questions**
+   - "What is a Data Management and Sharing Plan?"
+   - "What does controlled access mean?"
+
+5. **FAQ Questions**
+   - "Can I share data from non-NIH funded studies?"
+   - "What privacy protections are required?"
+
+## Deployment
+
+### Local Development
+
+```bash
+streamlit run chatbot_app.py
+# or
+streamlit run chatbot_app_openAI.py
+```
+
+### Production Deployment
+
+#### Streamlit Cloud
+
+1. Push code to GitHub
+2. Connect to Streamlit Cloud
+3. Add secrets in Streamlit Cloud dashboard
+4. Deploy
+
+#### Docker
+
+```dockerfile
+FROM python:3.10-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+EXPOSE 8501
+CMD ["streamlit", "run", "chatbot_app_openAI.py"]
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Ollama Connection Error**
+   - Ensure Ollama is running: `ollama serve`
+   - Check model is pulled: `ollama pull llama3.2`
+
+2. **OpenAI API Error**
+   - Verify API key in `.streamlit/secrets.toml`
+   - Check API key has sufficient credits
+
+3. **Qdrant Connection Error**
+   - For local: Check `qdrant_data/` exists with data
+   - For cloud: Verify `QDRANT_HOST` and `QDRANT_API_KEY`
+
+4. **Empty Responses**
+   - Ensure data ingestion completed successfully
+   - Check collection name matches in all files
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+[Add your license here]
+
+## Acknowledgments
+
+- Built with [LlamaIndex](https://www.llamaindex.ai/)
+- Vector database by [Qdrant](https://qdrant.tech/)
+- UI powered by [Streamlit](https://streamlit.io/)
+- Embeddings from [HuggingFace](https://huggingface.co/)
