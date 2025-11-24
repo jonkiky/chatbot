@@ -58,30 +58,6 @@ This AI chatbot helps cancer research investigators and data managers understand
 
 ## System Components
 
-### Frontend — Open WebUI
-Open WebUI serves as:
-- The primary user interface for chat interactions
-- A workspace for project-specific configurations
-- An admin access point for logs and diagnostics
-- An embeddable widget provider for datasharing.cancer.gov
-
-A dedicated workspace ("Cancer Data Sharing Assistant") will call a backend `/chat` API with:
-- User message
-- Session ID
-- Optional structured project attributes (funder, human vs. animal, data types)
-
-### Backend API Service (FastAPI or Flask)
-The backend orchestrates communication between:
-- Open WebUI
-- LlamaIndex (RAG + memory)
-- Ollama (LLM inference)
-- HuggingFace E5-Large-V2 (embeddings)
-
-Key endpoints:
-- `POST /chat` – main inference endpoint
-- `POST /project_profile` – update or persist user project metadata
-- `POST /admin/ingest` – trigger ingestion/indexing (optional, protected)
-
 ### RAG Layer (LlamaIndex)
 Responsible for intelligent retrieval and response generation:
 
