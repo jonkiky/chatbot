@@ -30,8 +30,9 @@ This AI chatbot helps cancer research investigators and data managers understand
 
 #### Integrations with External Systems
 - **Content Source**: Internal repo/storage of Markdown policy documents synced from datasharing.cancer.gov, NIH, NCI, and related sources
-- **LLM Gateway**: Hosted model provider accessible via Portkey.ai
-- **Vector Database**: Qdrant or pgvector (self-hosted)
+- **LLM**: Llama 3.2 via Ollama (local deployment)
+- **Embedding Model**: intfloat/e5-large-v2 from HuggingFace (optimized for retrieval tasks)
+- **Vector Database**: Qdrant (self-hosted)
 
 ## System Components
 
@@ -51,7 +52,8 @@ A dedicated workspace ("Cancer Data Sharing Assistant") will call a backend `/ch
 The backend orchestrates communication between:
 - Open WebUI
 - LlamaIndex (RAG + memory)
-- Portkey.ai (LLM gateway)
+- Ollama (LLM inference)
+- HuggingFace E5-Large-V2 (embeddings)
 
 Key endpoints:
 - `POST /chat` – main inference endpoint
@@ -60,17 +62,19 @@ Key endpoints:
 
 ### LlamaIndex Layer
 Responsible for the intelligent retrieval system, including:
-- Document ingestion and preprocessing
+- Document ingestion and preprocessing with E5-Large-V2 embeddings
 - Building RAG indexes (vector, keyword, summary)
 - Conversation-aware ChatEngine
 - Routing queries across different content types
 
 This layer encapsulates nearly all "RAG intelligence."
 
-### LLM Gateway — Portkey.ai
-All LLM calls go through Portkey to provide:
-- Centralized logging, rate limiting, retries, and failover
-- Easy switching between cloud LLMs and self-hosted OSS LLMs (e.g., Llama 3)
+### LLM & Embedding Models
+- **LLM**: Llama 3.2 running on Ollama for text generation and chunk classification
+- **Embeddings**: intfloat/e5-large-v2 from HuggingFace for semantic search
+  - 1024-dimensional embeddings
+  - Optimized for asymmetric semantic search (queries vs documents)
+  - State-of-the-art performance on retrieval benchmarks
 
 ### Storage
 - **Vector DB**: Qdrant/Chroma/Weaviate for embeddings + metadata

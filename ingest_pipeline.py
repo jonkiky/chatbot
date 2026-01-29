@@ -17,14 +17,19 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 import logging
+from dotenv import load_dotenv
 
 from llama_index.core import Document, VectorStoreIndex, StorageContext
 from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
 from llama_index.core.schema import TextNode, MetadataMode
-from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.ollama import Ollama
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
+from qdrant_client.models import PayloadSchemaType
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -36,35 +41,65 @@ logger = logging.getLogger(__name__)
 
 # Chunk Categories as defined in the system design
 CHUNK_CATEGORIES = [
-    "policy",           # Rules and mandates
-    "scope",           # Who/what the policy covers
+    "guidance",        # Guidelines and recommendations
+    "policy",          # Rules and mandates
     "process",         # How to submit, share, or access data
-    "technical",       # Formats, metadata, standards
-    "privacy_security", # Human data protection, access control
-    "costs_funding",   # Budgeting and fees
-    "data_reuse",      # How to use/cite shared data
-    "compliance",      # Oversight, enforcement, modifications
     "resources",       # Training, guides, templates
-    "dataset_access",  # Finding and using datasets/repositories
     "glossary",        # Definitions and terminology
-    "faq"             # Frequently asked questions
+    "faq",             # Frequently asked questions
+    "news"             # News, announcements, and updates
 ]
 
 
 @dataclass
 class ChunkMetadata:
-    """Metadata structure for document chunks"""
-    category: str
+    """Enhanced metadata structure for document chunks based on corpus analysis"""
+    
+    # Core identifiers
+    chunk_id: str
     source_file: str
     section_title: str
-    funding_filters: List[str]
-    subject_filters: List[str]
-    repository_tags: List[str]
-    policy_requirements: List[str]
-    keywords: List[str]
+    document_type: str  # About, Data, Guidance, Process, News
+    
+    # Content classification
+    category: str  # Primary category (policy, scope, process, etc.)
+    subcategory: Optional[str] = None
+    
+    # Contextual attributes
+    agencies: List[str] = None
+    funding_sources: List[str] = None
+    repositories: List[str] = None
+    data_types: List[str] = None
+    subject_types: List[str] = None
+    
+    # Policy context
+    policy_references: List[str] = None
+    requirements: List[str] = None
+    compliance_level: Optional[str] = None
+    
+    # Process metadata
+    process_stage: Optional[str] = None
+    audience: List[str] = None
+    
+    # Semantic enrichment
+    keywords: List[str] = None
+    related_topics: List[str] = None
+    
+    # Quality metrics
+    confidence_score: float = 0.0
+    
+    def __post_init__(self):
+        """Initialize None fields as empty lists"""
+        for field_name in ['agencies', 'funding_sources', 'repositories', 'data_types', 
+                           'subject_types', 'policy_references', 'requirements', 
+                           'audience', 'keywords', 'related_topics']:
+            if getattr(self, field_name) is None:
+                setattr(self, field_name, [])
     
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        """Convert to dictionary, excluding None values and empty lists"""
+        result = asdict(self)
+        return {k: v for k, v in result.items() if v is not None and v != [] and v != 0.0}
 
 
 class MarkdownCorpusParser:
@@ -132,20 +167,20 @@ class MarkdownCorpusParser:
 class ChunkClassifier:
     """LLM-based classifier for document chunks"""
     
-    def __init__(self, llm: Optional[Ollama] = None, use_portkey: bool = False):
+    def __init__(self, llm: Optional[Ollama] = None):
         """
         Initialize classifier with LLM
         
         Args:
             llm: Ollama LLM instance (Llama 3.2)
-            use_portkey: Whether to route through Portkey.ai (if configured)
         """
         if llm is None:
             # Default Llama 3.2 via Ollama
             self.llm = Ollama(
                 model="llama3.2",
                 temperature=0.1,
-                request_timeout=120.0
+                request_timeout=120.0,
+                context_window=8192
             )
         else:
             self.llm = llm
@@ -156,18 +191,13 @@ Classify the following text chunk into ONE of these categories:
 {categories}
 
 Category definitions:
-- policy: Rules, mandates, requirements that must be followed
-- scope: Who or what a policy covers (types of data, researchers, institutions)
-- process: Step-by-step procedures for submitting, sharing, or accessing data
-- technical: Data formats, metadata standards, technical specifications
-- privacy_security: Human subject protection, consent, access controls, security measures
-- costs_funding: Budget requirements, fees, funding sources
-- data_reuse: How to properly use, cite, or acknowledge shared data
-- compliance: Oversight, enforcement, policy modifications, violations
+- guidance: Guidelines and best practices
+- policy: Rules and requirements
+- process: Step-by-step procedures
 - resources: Training materials, guides, templates, tools
-- dataset_access: How to find, request, or use specific datasets and repositories
-- glossary: Definitions, terminology, acronyms
+- glossary: Definitions and terminology
 - faq: Common questions and answers
+- news: News and announcements
 
 Text chunk:
 \"\"\"
@@ -189,7 +219,7 @@ Respond with ONLY the category name (one word), nothing else."""
         try:
             prompt = self.classification_prompt_template.format(
                 categories=", ".join(CHUNK_CATEGORIES),
-                chunk_text=chunk_text[:2000],  # Limit length
+                chunk_text=chunk_text[:2048],  # Limit length
                 section_title=section_title,
                 source_file=source_file
             )
@@ -199,8 +229,8 @@ Respond with ONLY the category name (one word), nothing else."""
             
             # Validate category
             if category not in CHUNK_CATEGORIES:
-                logger.warning(f"Invalid category '{category}', defaulting to 'policy'")
-                category = "policy"
+                logger.warning(f"Invalid category '{category}', defaulting to 'others'")
+                category = "others"
             
             return category
             
@@ -228,78 +258,153 @@ Respond with ONLY the category name (one word), nothing else."""
 
 
 class MetadataEnricher:
-    """Enriches chunks with inferred metadata"""
+    """Enhanced metadata enricher based on corpus analysis"""
     
-    # Keyword-based inference rules
-    FUNDING_KEYWORDS = {
-        "NIH": ["nih", "national institutes of health", "nih-funded"],
-        "NCI": ["nci", "national cancer institute", "nci-funded"],
-        "DOD": ["dod", "department of defense", "dod-funded"],
+    # Agency patterns
+    AGENCY_PATTERNS = {
+        "NIH": ["nih", "national institutes of health"],
+        "NCI": ["nci", "national cancer institute"],
+        "FDA": ["fda", "food and drug administration"],
+        "CDC": ["cdc", "centers for disease control"],
         "NSF": ["nsf", "national science foundation"],
+        "DOD": ["dod", "department of defense"],
+        "OSTP": ["ostp", "office of science and technology policy"],
+        "OMB": ["omb", "office of management and budget"],
     }
     
-    SUBJECT_KEYWORDS = {
-        "human": ["human", "patient", "clinical", "participant", "subject"],
-        "animal": ["animal", "mouse", "mice", "rat", "model organism"],
-        "cell_line": ["cell line", "in vitro", "cultured cells"],
-    }
-    
-    REPOSITORY_KEYWORDS = {
+    # Repository patterns
+    REPOSITORY_PATTERNS = {
         "dbGaP": ["dbgap", "database of genotypes and phenotypes"],
-        "SRA": ["sra", "sequence read archive"],
         "GEO": ["geo", "gene expression omnibus"],
-        "PDC": ["pdc", "proteomic data commons"],
+        "SRA": ["sra", "sequence read archive"],
         "GDC": ["gdc", "genomic data commons"],
+        "PDC": ["pdc", "proteomic data commons"],
         "CDS": ["cds", "cancer data service"],
+        "IDC": ["idc", "imaging data commons"],
     }
     
-    POLICY_REQUIREMENT_KEYWORDS = {
-        "DMS Plan": ["dms plan", "data management", "sharing plan"],
-        "Consent": ["consent", "informed consent", "irb"],
-        "Access Control": ["access control", "controlled access", "dbgap"],
-        "De-identification": ["de-identif", "anonymiz", "phi"],
-        "Genomic Data": ["genomic", "sequencing", "genotype"],
+    # Data type patterns
+    DATA_TYPE_PATTERNS = {
+        "genomic": ["genomic", "genome", "dna", "sequencing", "whole genome", "exome"],
+        "proteomic": ["proteomic", "protein", "proteome"],
+        "transcriptomic": ["transcriptomic", "rna", "rna-seq", "transcriptome"],
+        "imaging": ["imaging", "radiology", "mri", "ct scan", "pathology image"],
+        "clinical": ["clinical", "patient data", "medical record", "ehr"],
+        "metabolomic": ["metabolomic", "metabolite", "metabolome"],
+        "single_cell": ["single-cell", "single cell", "sc-rna", "scrna"],
+        "spatial": ["spatial", "spatial transcriptomic", "spatial genomic"],
+    }
+    
+    # Subject type patterns
+    SUBJECT_TYPE_PATTERNS = {
+        "human": ["human", "patient", "participant", "clinical trial", "subject"],
+        "animal": ["animal", "mouse", "mice", "rat", "model organism", "preclinical"],
+        "cell_line": ["cell line", "in vitro", "cultured cell", "cell culture"],
+        "tissue": ["tissue", "tissue sample", "biopsy", "specimen"],
+    }
+    
+    # Policy reference patterns
+    POLICY_PATTERNS = {
+        "NIH_DMS_Policy": ["nih data management", "nih dms policy", "nih policy for data management"],
+        "GDSP": ["gdsp", "genomic data sharing policy", "nih genomic data sharing"],
+        "GDS_Policy": ["gds policy", "genomic data sharing"],
+        "DMSP_Requirement": ["dms plan", "dmsp", "data management and sharing plan"],
+    }
+    
+    # Requirement patterns
+    REQUIREMENT_PATTERNS = {
+        "DMS_Plan": ["dms plan", "data management", "sharing plan", "dmsp"],
+        "Consent": ["consent", "informed consent", "patient consent"],
+        "IRB_Approval": ["irb", "institutional review board", "ethics approval"],
+        "De_identification": ["de-identif", "anonymiz", "phi", "protected health information"],
+        "Access_Control": ["access control", "controlled access", "access restriction"],
+        "Metadata_Standards": ["metadata", "metadata standard", "data dictionary"],
+        "Data_Format": ["data format", "file format", "format requirement"],
+    }
+    
+    # Process stage patterns
+    PROCESS_STAGE_PATTERNS = {
+        "submission": ["submit", "submission", "upload", "deposit"],
+        "access": ["access", "download", "retrieve", "request data"],
+        "review": ["review", "approval", "evaluation"],
+        "registration": ["register", "registration", "account creation"],
+    }
+    
+    # Audience patterns
+    AUDIENCE_PATTERNS = {
+        "investigator": ["investigator", "researcher", "pi", "principal investigator"],
+        "data_manager": ["data manager", "data steward", "data coordinator"],
+        "institutional_official": ["institutional official", "signing official", "so"],
+        "irb": ["irb", "institutional review board", "ethics committee"],
+        "data_user": ["data user", "data requester", "secondary researcher"],
+    }
+    
+    # Compliance level patterns
+    COMPLIANCE_PATTERNS = {
+        "mandatory": ["must", "required", "shall", "mandatory", "obligation"],
+        "recommended": ["should", "recommended", "encouraged", "best practice"],
+        "optional": ["may", "optional", "can", "at discretion"],
     }
     
     def __init__(self):
         pass
     
-    def infer_metadata(self, chunk_text: str, source_file: str = "") -> Dict[str, List[str]]:
-        """Infer metadata attributes from chunk text"""
+    def infer_metadata(
+        self,
+        chunk_text: str,
+        source_file: str = "",
+        section_title: str = ""
+    ) -> Dict[str, Any]:
+        """Infer comprehensive metadata from chunk text"""
         text_lower = chunk_text.lower()
         
         metadata = {
-            "funding_filters": [],
-            "subject_filters": [],
-            "repository_tags": [],
-            "policy_requirements": [],
-            "keywords": []
+            "agencies": self._extract_patterns(text_lower, self.AGENCY_PATTERNS),
+            "repositories": self._extract_patterns(text_lower, self.REPOSITORY_PATTERNS),
+            "data_types": self._extract_patterns(text_lower, self.DATA_TYPE_PATTERNS),
+            "subject_types": self._extract_patterns(text_lower, self.SUBJECT_TYPE_PATTERNS),
+            "policy_references": self._extract_patterns(text_lower, self.POLICY_PATTERNS),
+            "requirements": self._extract_patterns(text_lower, self.REQUIREMENT_PATTERNS),
+            "process_stage": self._extract_single_pattern(text_lower, self.PROCESS_STAGE_PATTERNS),
+            "audience": self._extract_patterns(text_lower, self.AUDIENCE_PATTERNS),
+            "compliance_level": self._extract_single_pattern(text_lower, self.COMPLIANCE_PATTERNS),
+            "keywords": self._extract_keywords(chunk_text),
+            "document_type": self._infer_document_type(source_file),
         }
         
-        # Check funding sources
-        for funder, keywords in self.FUNDING_KEYWORDS.items():
-            if any(kw in text_lower for kw in keywords):
-                metadata["funding_filters"].append(funder)
-        
-        # Check subject types
-        for subject, keywords in self.SUBJECT_KEYWORDS.items():
-            if any(kw in text_lower for kw in keywords):
-                metadata["subject_filters"].append(subject)
-        
-        # Check repositories
-        for repo, keywords in self.REPOSITORY_KEYWORDS.items():
-            if any(kw in text_lower for kw in keywords):
-                metadata["repository_tags"].append(repo)
-        
-        # Check policy requirements
-        for req, keywords in self.POLICY_REQUIREMENT_KEYWORDS.items():
-            if any(kw in text_lower for kw in keywords):
-                metadata["policy_requirements"].append(req)
-        
-        # Extract additional keywords (simple approach)
-        metadata["keywords"] = self._extract_keywords(chunk_text)
-        
         return metadata
+    
+    def _extract_patterns(
+        self,
+        text: str,
+        pattern_dict: Dict[str, List[str]]
+    ) -> List[str]:
+        """Extract all matching patterns"""
+        matches = []
+        for key, patterns in pattern_dict.items():
+            if any(pattern in text for pattern in patterns):
+                matches.append(key)
+        return matches
+    
+    def _extract_single_pattern(
+        self,
+        text: str,
+        pattern_dict: Dict[str, List[str]]
+    ) -> Optional[str]:
+        """Extract single best matching pattern"""
+        for key, patterns in pattern_dict.items():
+            if any(pattern in text for pattern in patterns):
+                return key
+        return None
+    
+    def _infer_document_type(self, source_file: str) -> str:
+        """Infer document type from file path"""
+        parts = Path(source_file).parts
+        if len(parts) > 0:
+            first_dir = parts[0]
+            if first_dir in ["About", "Data", "Guidance", "Process", "News", "documents"]:
+                return first_dir
+        return "unknown"
     
     def _extract_keywords(self, text: str, max_keywords: int = 10) -> List[str]:
         """Simple keyword extraction based on frequency"""
@@ -332,43 +437,30 @@ class IngestionPipeline:
         data_dir: str,
         vector_store_path: str = "./qdrant_data",
         collection_name: str = "cancer_data_sharing",
-        chunk_size: int = 1024,
-        chunk_overlap: int = 200,
-        use_portkey: bool = False,
-        portkey_api_key: Optional[str] = None
+        chunk_size: int = 2048,
+        chunk_overlap: int = 400,
+        use_cloud: bool = False
     ):
         """
         Initialize ingestion pipeline
         
         Args:
             data_dir: Path to Markdown corpus
-            vector_store_path: Path for Qdrant storage
+            vector_store_path: Path for Qdrant storage (local mode)
             collection_name: Name of vector collection
             chunk_size: Target chunk size in tokens
             chunk_overlap: Overlap between chunks
-            use_portkey: Whether to route LLM calls through Portkey
-            portkey_api_key: Portkey API key if using gateway
+            use_cloud: If True, use Qdrant Cloud instead of local storage
         """
         self.data_dir = data_dir
         self.collection_name = collection_name
+        self.use_cloud = use_cloud
         
         # Initialize components
         self.parser = MarkdownCorpusParser(data_dir)
         
         # LLM setup (Llama 3.2 via Ollama)
-        if use_portkey and portkey_api_key:
-            # Configure Ollama client to use Portkey gateway
-            llm = Ollama(
-                model="llama3.2",
-                base_url="https://api.portkey.ai/v1",
-                additional_kwargs={"api_key": portkey_api_key},
-                temperature=0.1,
-                request_timeout=120.0
-            )
-        else:
-            llm = None  # Use default Ollama
-        
-        self.classifier = ChunkClassifier(llm=llm, use_portkey=use_portkey)
+        self.classifier = ChunkClassifier()
         self.enricher = MetadataEnricher()
         
         # Text splitter
@@ -377,23 +469,43 @@ class IngestionPipeline:
             chunk_overlap=chunk_overlap
         )
         
-        # Vector store setup
-        self.client = QdrantClient(path=vector_store_path)
+        # Vector store setup - support both local and cloud
+        if use_cloud:
+            cloud_url = os.getenv("QDRANT_HOST")
+            api_key = os.getenv("QDRANT_API_KEY")
+            
+            if not cloud_url or not api_key:
+                raise ValueError(
+                    "Cloud mode requires QDRANT_HOST and QDRANT_API_KEY in .env file"
+                )
+            
+            logger.info(f"Using Qdrant Cloud: {cloud_url}")
+            self.client = QdrantClient(
+                url=cloud_url,
+                api_key=api_key,
+                https=True
+            )
+        else:
+            logger.info(f"Using local Qdrant: {vector_store_path}")
+            self.client = QdrantClient(path=vector_store_path)
+        
         self.vector_store = QdrantVectorStore(
             client=self.client,
             collection_name=collection_name
         )
         
-        # Embedding model (Llama 3.2 embeddings via Ollama)
-        self.embed_model = OllamaEmbedding(
-            model_name="llama3.2",
-            base_url="http://localhost:11434"
+        # Embedding model (E5-Large-V2 from HuggingFace)
+        self.embed_model = HuggingFaceEmbedding(
+            model_name="intfloat/e5-large-v2",
+            trust_remote_code=True
         )
         
         logger.info("Ingestion pipeline initialized")
     
+   # Update process_document method (lines 420-480)
+
     def process_document(self, file_path: Path) -> List[TextNode]:
-        """Process a single Markdown document into nodes"""
+        """Process a single Markdown document into nodes with enhanced metadata"""
         logger.info(f"Processing: {file_path}")
         
         # Read file
@@ -422,24 +534,35 @@ class IngestionPipeline:
         # Classify chunks
         categories = self.classifier.batch_classify_chunks(chunks_with_context)
         
-        # Create nodes with metadata
+        # Create nodes with enhanced metadata
         nodes = []
-        for chunk_info, category in zip(chunks_with_context, categories):
+        for idx, (chunk_info, category) in enumerate(zip(chunks_with_context, categories)):
             # Enrich metadata
             inferred_metadata = self.enricher.infer_metadata(
                 chunk_info["text"],
-                chunk_info["source_file"]
+                chunk_info["source_file"],
+                chunk_info["section_title"]
             )
             
-            # Create full metadata
+            # Generate chunk ID
+            chunk_id = f"{file_path.stem}_{idx:04d}"
+            
+            # Create full metadata with enhanced structure
             metadata = ChunkMetadata(
-                category=category,
+                chunk_id=chunk_id,
                 source_file=chunk_info["source_file"],
                 section_title=chunk_info["section_title"],
-                funding_filters=inferred_metadata["funding_filters"],
-                subject_filters=inferred_metadata["subject_filters"],
-                repository_tags=inferred_metadata["repository_tags"],
-                policy_requirements=inferred_metadata["policy_requirements"],
+                document_type=inferred_metadata["document_type"],
+                category=category,
+                agencies=inferred_metadata["agencies"],
+                repositories=inferred_metadata["repositories"],
+                data_types=inferred_metadata["data_types"],
+                subject_types=inferred_metadata["subject_types"],
+                policy_references=inferred_metadata["policy_references"],
+                requirements=inferred_metadata["requirements"],
+                compliance_level=inferred_metadata["compliance_level"],
+                process_stage=inferred_metadata["process_stage"],
+                audience=inferred_metadata["audience"],
                 keywords=inferred_metadata["keywords"]
             )
             
@@ -485,10 +608,46 @@ class IngestionPipeline:
         
         logger.info("Ingestion pipeline completed successfully")
         
+        # Create payload indexes for filterable fields
+        self._create_payload_indexes()
+        
         # Log statistics
         self._log_statistics(all_nodes)
         
         return index
+    
+    def _create_payload_indexes(self):
+        """Create payload indexes for filterable fields after data is ingested"""
+        try:
+            logger.info("Creating payload indexes for filterable fields...")
+            
+            # Create index for category field
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="category",
+                    field_schema=PayloadSchemaType.KEYWORD
+                )
+                logger.info("✓ Created index for 'category'")
+            except Exception as e:
+                logger.warning(f"Index for 'category' may already exist or failed: {e}")
+            
+            # Create index for document_type field
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="document_type",
+                    field_schema=PayloadSchemaType.KEYWORD
+                )
+                logger.info("✓ Created index for 'document_type'")
+            except Exception as e:
+                logger.warning(f"Index for 'document_type' may already exist or failed: {e}")
+            
+            logger.info("Payload indexes creation completed")
+            
+        except Exception as e:
+            logger.error(f"Error creating payload indexes: {e}")
+            logger.warning("Continuing without indexes - filtering may not work")
     
     def _log_statistics(self, nodes: List[TextNode]):
         """Log statistics about indexed content"""
@@ -536,14 +695,9 @@ def main():
         help="Target chunk size in tokens"
     )
     parser.add_argument(
-        "--use-portkey",
+        "--use-cloud",
         action="store_true",
-        help="Route LLM calls through Portkey.ai"
-    )
-    parser.add_argument(
-        "--portkey-api-key",
-        type=str,
-        help="Portkey API key (if using gateway)"
+        help="Use Qdrant Cloud instead of local storage (requires QDRANT_HOST and QDRANT_API_KEY in .env)"
     )
     
     args = parser.parse_args()
@@ -554,8 +708,7 @@ def main():
         vector_store_path=args.vector_store_path,
         collection_name=args.collection_name,
         chunk_size=args.chunk_size,
-        use_portkey=args.use_portkey,
-        portkey_api_key=args.portkey_api_key
+        use_cloud=args.use_cloud
     )
     
     # Run pipeline
